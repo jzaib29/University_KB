@@ -1,9 +1,0 @@
-{
-  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
-  "embedding_dimension": 384,
-  "normalized_embeddings": true,
-  "faiss_metric": "inner_product",
-  "chunk_size": 1000,
-  "chunk_overlap": 200,
-  "number_of_chunks": 1534
-}
