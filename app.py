@@ -10,7 +10,7 @@ from src.prompts import SYSTEM_PROMPT, build_rag_prompt
 # ---------------------------------------------------------
 
 st.set_page_config(
-    page_title="Document RAG Assistant",
+    page_title="NUST Student Knowledge Base AI Assistant",
     page_icon="📚",
     layout="wide"
 )
@@ -92,7 +92,7 @@ with st.sidebar:
 # Header
 # ---------------------------------------------------------
 
-st.title("📚 Document RAG Assistant")
+st.title("📚 NUST Student Knowledge Base AI Assistant")
 
 st.write(
     "Ask questions about the documents contained "
