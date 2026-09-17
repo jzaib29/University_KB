@@ -5,34 +5,100 @@ from src.groq_client import GroqService
 from src.prompts import SYSTEM_PROMPT, build_rag_prompt
 
 
-# ---------------------------------------------------------
-# Page configuration
-# ---------------------------------------------------------
+# =========================================================
+# Configuration
+# =========================================================
+
+TOP_K = 5
+MAX_CONVERSATIONS = 6
+
 
 st.set_page_config(
-    page_title="NUST Student Knowledge Base AI Assistant",
+    page_title="NUST Student Knowledge Base",
     page_icon="📚",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 
-# ---------------------------------------------------------
-# Load API key
-# ---------------------------------------------------------
+# =========================================================
+# UI Styling
+# =========================================================
+
+st.markdown("""
+<style>
+
+/* Main content width */
+.block-container {
+    max-width: 1050px;
+    padding-top: 2.5rem;
+    padding-bottom: 6rem;
+}
+
+/* Sidebar */
+[data-testid="stSidebar"] {
+    min-width: 290px;
+    max-width: 290px;
+}
+
+[data-testid="stSidebar"] .block-container {
+    padding-top: 2rem;
+}
+
+/* Main title */
+.main-title {
+    font-size: 2.45rem;
+    font-weight: 750;
+    line-height: 1.2;
+    margin-bottom: 0.3rem;
+}
+
+.main-subtitle {
+    font-size: 1.05rem;
+    opacity: 0.72;
+    margin-bottom: 2rem;
+}
+
+/* Source text */
+.source-box {
+    font-size: 0.85rem;
+    opacity: 0.75;
+    padding-top: 0.3rem;
+}
+
+/* Sidebar title */
+.sidebar-title {
+    font-size: 1.15rem;
+    font-weight: 650;
+    margin-bottom: 1rem;
+}
+
+/* Hide Streamlit footer */
+footer {
+    visibility: hidden;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+
+# =========================================================
+# API Key
+# =========================================================
 
 try:
     GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 except Exception:
     st.error(
-        "GROQ_API_KEY was not found. "
-        "Add it to Streamlit Secrets."
+        "Groq API key is not configured. "
+        "Please add GROQ_API_KEY to Streamlit Secrets."
     )
     st.stop()
 
 
-# ---------------------------------------------------------
-# Load FAISS retriever
-# ---------------------------------------------------------
+# =========================================================
+# Load Services
+# =========================================================
 
 @st.cache_resource
 def load_retriever():
@@ -53,117 +119,205 @@ except Exception as e:
     st.stop()
 
 
-# ---------------------------------------------------------
-# Sidebar
-# ---------------------------------------------------------
-
-with st.sidebar:
-
-    st.header("RAG Settings")
-
-    top_k = st.slider(
-        "Retrieved chunks",
-        min_value=2,
-        max_value=10,
-        value=5
-    )
-
-    show_sources = st.checkbox(
-        "Show retrieved sources",
-        value=True
-    )
-
-    st.divider()
-
-    st.caption(
-        "LLM: GPT-OSS 120B via Groq"
-    )
-
-    st.caption(
-        f"Vectors loaded: {retriever.index.ntotal}"
-    )
-
-    if st.button("Clear conversation"):
-        st.session_state.messages = []
-        st.rerun()
-
-
-# ---------------------------------------------------------
-# Header
-# ---------------------------------------------------------
-
-st.title("📚 NUST Student Knowledge Base AI Assistant")
-
-st.write(
-    "Ask questions about the documents contained "
-    "in the knowledge base."
-)
-
-
-# ---------------------------------------------------------
-# Session state
-# ---------------------------------------------------------
+# =========================================================
+# Session State
+# =========================================================
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 
-# ---------------------------------------------------------
-# Display previous messages
-# ---------------------------------------------------------
+# =========================================================
+# Sidebar
+# =========================================================
+
+with st.sidebar:
+
+    st.markdown(
+        '<div class="sidebar-title">Recent Questions</div>',
+        unsafe_allow_html=True
+    )
+
+    # Get only user queries
+    recent_questions = [
+        message["content"]
+        for message in st.session_state.messages
+        if message["role"] == "user"
+    ][-MAX_CONVERSATIONS:]
+
+    if recent_questions:
+
+        # Show newest first
+        for question_item in reversed(recent_questions):
+
+            # Short preview
+            preview = question_item
+
+            if len(preview) > 65:
+                preview = preview[:65] + "..."
+
+            st.caption(f"• {preview}")
+
+    else:
+        st.caption("Your recent questions will appear here.")
+
+    st.divider()
+
+    if st.button(
+        "Clear conversation",
+        use_container_width=True
+    ):
+        st.session_state.messages = []
+        st.rerun()
+
+
+# =========================================================
+# Header
+# =========================================================
+
+st.markdown(
+    """
+    <div class="main-title">
+        📚 NUST Student Knowledge Base
+    </div>
+
+    <div class="main-subtitle">
+        Ask questions about university policies, procedures,
+        regulations and student information.
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# =========================================================
+# Empty State
+# =========================================================
+
+if not st.session_state.messages:
+
+    st.info(
+        "Ask a question below to search the knowledge base."
+    )
+
+
+# =========================================================
+# Display Conversation
+# =========================================================
 
 for message in st.session_state.messages:
 
     with st.chat_message(message["role"]):
+
         st.markdown(message["content"])
 
+        # Compact sources
+        if (
+            message["role"] == "assistant"
+            and message.get("sources")
+        ):
 
-# ---------------------------------------------------------
-# User input
-# ---------------------------------------------------------
+            sources = message["sources"]
+
+            source_labels = []
+
+            seen = set()
+
+            for source in sources:
+
+                filename = source.get(
+                    "source",
+                    "Unknown source"
+                )
+
+                page = source.get("page")
+
+                if page is not None:
+                    label = f"{filename} · p. {page}"
+                else:
+                    label = filename
+
+                # Avoid duplicate source labels
+                if label not in seen:
+                    seen.add(label)
+                    source_labels.append(label)
+
+            if source_labels:
+
+                st.markdown(
+                    '<div class="source-box">'
+                    '<b>Sources:</b> '
+                    + " &nbsp; • &nbsp; ".join(source_labels)
+                    + "</div>",
+                    unsafe_allow_html=True
+                )
+
+
+# =========================================================
+# User Question
+# =========================================================
 
 question = st.chat_input(
-    "Ask a question about the documents..."
+    "Ask about NUST policies, procedures or student information..."
 )
 
 
 if question:
 
-    # Save/display user question
+    # -----------------------------------------------------
+    # Add User Message
+    # -----------------------------------------------------
 
     st.session_state.messages.append({
         "role": "user",
         "content": question
     })
 
+
+    # -----------------------------------------------------
+    # Keep Only Last 6 Conversations
+    #
+    # Each conversation = user + assistant
+    # Therefore max messages = 12
+    # -----------------------------------------------------
+
+    max_messages = MAX_CONVERSATIONS * 2
+
+    if len(st.session_state.messages) > max_messages:
+        st.session_state.messages = (
+            st.session_state.messages[-max_messages:]
+        )
+
+
+    # -----------------------------------------------------
+    # Display Question
+    # -----------------------------------------------------
+
     with st.chat_message("user"):
         st.markdown(question)
 
 
     # -----------------------------------------------------
-    # Retrieve relevant document chunks
+    # Retrieval
     # -----------------------------------------------------
 
-    with st.spinner("Searching documents..."):
+    try:
 
-        try:
+        with st.spinner("Searching the knowledge base..."):
 
             results = retriever.search(
                 query=question,
-                k=top_k
+                k=TOP_K
             )
 
-        except Exception as e:
+    except Exception as e:
 
-            st.error(
-                f"Document retrieval failed: {e}"
-            )
-
-            st.stop()
+        st.error(f"Knowledge base search failed: {e}")
+        st.stop()
 
 
     # -----------------------------------------------------
-    # Build RAG prompt
+    # RAG Prompt
     # -----------------------------------------------------
 
     rag_prompt = build_rag_prompt(
@@ -173,86 +327,79 @@ if question:
 
 
     # -----------------------------------------------------
-    # Ask Groq
+    # Generate Answer
     # -----------------------------------------------------
 
     with st.chat_message("assistant"):
 
-        with st.spinner("Generating answer..."):
+        try:
 
-            try:
+            with st.spinner("Preparing answer..."):
 
                 answer = groq_service.generate_answer(
                     system_prompt=SYSTEM_PROMPT,
                     user_prompt=rag_prompt
                 )
 
-            except Exception as e:
+        except Exception as e:
 
-                st.error(
-                    f"Groq API request failed: {e}"
-                )
-
-                st.stop()
-
+            st.error(f"Unable to generate answer: {e}")
+            st.stop()
 
         st.markdown(answer)
 
 
         # -------------------------------------------------
-        # Display retrieved sources
+        # Compact Sources
         # -------------------------------------------------
 
-        if show_sources:
+        source_labels = []
+        seen = set()
 
-            with st.expander(
-                "Retrieved sources"
-            ):
+        for result in results:
 
-                for i, result in enumerate(
-                    results,
-                    start=1
-                ):
+            filename = result.get(
+                "source",
+                "Unknown source"
+            )
 
-                    source = result.get(
-                        "source",
-                        "Unknown"
-                    )
+            page = result.get("page")
 
-                    page = result.get("page")
+            if page is not None:
+                label = f"{filename} · p. {page}"
+            else:
+                label = filename
 
-                    score = result.get(
-                        "score",
-                        0
-                    )
+            if label not in seen:
+                seen.add(label)
+                source_labels.append(label)
 
-                    if page is not None:
-                        st.markdown(
-                            f"**{i}. {source} — "
-                            f"Page {page}**"
-                        )
-                    else:
-                        st.markdown(
-                            f"**{i}. {source}**"
-                        )
 
-                    st.caption(
-                        f"Similarity score: "
-                        f"{score:.4f}"
-                    )
+        if source_labels:
 
-                    st.write(
-                        result["text"]
-                    )
-
-                    st.divider()
+            st.markdown(
+                '<div class="source-box">'
+                '<b>Sources:</b> '
+                + " &nbsp; • &nbsp; ".join(source_labels)
+                + "</div>",
+                unsafe_allow_html=True
+            )
 
 
     # -----------------------------------------------------
-    # Store assistant answer
+    # Save Assistant Response
     # -----------------------------------------------------
 
     st.session_state.messages.append({
         "role": "assistant",
-        "content": answer
+        "content": answer,
+        "sources": results
     })
+
+
+    # Final history limit
+    if len(st.session_state.messages) > max_messages:
+
+        st.session_state.messages = (
+            st.session_state.messages[-max_messages:]
+        )
